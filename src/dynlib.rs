@@ -4,7 +4,9 @@
 #[macro_export]
 macro_rules! create_dynamic_library {
     ($t:ty) => {
+        use mosquitto_calls::MosquittoPublishCalls;
         use mosquitto_dev::*;
+        use std::ffi::CString;
         use std::os::raw::c_int;
         use std::os::raw::c_void;
 
@@ -337,7 +339,7 @@ macro_rules! create_dynamic_library {
             let opts = __from_ptr_and_size(opts, opt_count as _);
             println!("mosquitto_plugin_init {:?}", opts);
 
-            let instance: $t = <$t>::init(opts);
+            let instance: $t = <$t>::init(opts, MosquittoPublishCalls {});
             let instance = instance;
             println!("external_user_data addr {:?}", instance);
             let internal_user_data = InternalUserData {

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::convert::From;
 use std::ffi::CString;
 use std::fmt;
+use std::fmt::Debug;
 
 pub mod dynlib;
 
@@ -169,14 +170,22 @@ impl Into<i32> for Success {
 //     }
 // }
 
-#[derive(Debug)]
 pub struct MosquittoMessage<'a> {
     pub topic: &'a str,
     pub payload: &'a [u8],
     pub qos: i32,
     pub retain: bool,
 }
-
+impl Debug for MosquittoMessage<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MosquittoMessage")
+            .field("topic", &self.topic)
+            .field("payload", &std::str::from_utf8(&self.payload))
+            .field("qos", &self.qos)
+            .field("retain", &self.retain)
+            .finish()
+    }
+}
 pub enum QOS {
     AtMostOnce,
     AtLeastOnce,

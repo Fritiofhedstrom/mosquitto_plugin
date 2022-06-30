@@ -18,13 +18,11 @@ impl MosquittoPlugin for Test {
         let topic = opts.get("topic").unwrap_or(&default);
         let level = opts.get("level").unwrap_or(&default);
         let level = level.parse().unwrap_or(0);
-
         Test {
             i: level,
             s: topic.to_string(),
         }
     }
-
     fn username_password(
         &mut self,
         client: &dyn MosquittoClientContext,
@@ -46,7 +44,19 @@ impl MosquittoPlugin for Test {
                 "new_client",
                 "very_client is a friend. Lets make it feel at home!".as_bytes(),
                 QOS::AtMostOnce,
-                false,
+                true,
+            )?;
+            mosquitto_calls::publish_broadcast(
+                "HEJ/ajaj",
+                "very_client is a friend. Lets make it feel at home!".as_bytes(),
+                QOS::AtMostOnce,
+                true,
+            )?;
+            mosquitto_calls::publish_broadcast(
+                "HEJ/ajaj/tjoho",
+                "very_client is a friend. Lets make it feel at home!".as_bytes(),
+                QOS::AtMostOnce,
+                true,
             )?;
             // Welcome the new client privately
             mosquitto_calls::publish_to_client(
@@ -54,7 +64,7 @@ impl MosquittoPlugin for Test {
                 "greeting",
                 format!("Welcome {}", client_id).as_bytes(),
                 QOS::AtMostOnce,
-                false,
+                true,
             )?;
             Ok(Success)
         } else {
@@ -64,7 +74,7 @@ impl MosquittoPlugin for Test {
                 "snitcheroo",
                 format!("{} is a bad bad client. No cookies for it.", client_id).as_bytes(),
                 QOS::AtMostOnce,
-                false,
+                true,
             )?;
             Err(Error::Auth)
         }
@@ -83,11 +93,12 @@ impl MosquittoPlugin for Test {
         // only the topic provided in the mosquitto.conf by the value auth_opt_topic <value> is
         // allowed, errors will not be reported to the clients though, they will only not be able
         // to send/receive messages and thus silently fail due to limitations in MQTT protocol
-        if msg.topic == self.s {
-            Ok(Success)
-        } else {
-            Err(Error::AclDenied)
-        }
+        // if msg.topic == self.s {
+        //     Ok(Success)
+        // } else {
+        //     Err(Error::AclDenied)
+        // }
+        Ok(Success)
     }
 
     fn on_disconnect(&mut self, client: &dyn MosquittoClientContext, reason: i32) {
@@ -99,7 +110,9 @@ impl MosquittoPlugin for Test {
         client: &dyn MosquittoClientContext,
         message: MosquittoMessage,
     ) {
-        println!("Plugin on_message: client {}: Topic: {}, Payload: {:?}", client.get_id(), message.topic, message.payload)
+        println!("Plugin on_message: client {}: Topic: {}, Payload: {:?}", client.get_id(), message.topic, message.payload);
+        let retained_database = mosquitto_calls::get_retained("HEJ/#");
+        println!("retained_database: {:?}", retained_database);
     }
 }
 

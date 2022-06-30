@@ -1,8 +1,14 @@
+use crate::MosquittoMessage;
 use crate::mosquitto_dev::*;
 use crate::Error;
 use crate::{Success, QOS};
 use libc::c_void;
+use libc::malloc;
+use std::alloc::Layout;
+use std::convert::TryInto;
 use std::ffi::CString;
+use std::mem;
+use std::mem::MaybeUninit;
 use std::os::raw::c_char;
 
 /// Broadcast a message from the broker
@@ -95,4 +101,59 @@ pub fn publish_to_client(
             _default => Err(Error::Unknown),
         }
     }
+}
+
+pub fn get_retained(topic: &str) -> Result<Vec<MosquittoMessage>, String>{
+    let cstr = &CString::new(topic).expect(format!("failed to make cstring for topic {}", topic).as_str());
+    let topic_ptr = cstr.as_bytes_with_nul().as_ptr();
+    println!("size of mosquitto_message: {}", mem::size_of::<mosquitto_message>());
+    let buffer_len : u64 = 10;
+    let mut buffer2 : Vec<*mut mosquitto_message> = vec![std::ptr::null_mut::<mosquitto_message>(); buffer_len.try_into().unwrap()];
+    let buffer = buffer2.as_mut_ptr();
+    
+    
+    unsafe {
+        if mosquitto_get_retained(topic_ptr as *const c_char, buffer, buffer_len) != 0 {
+            return Err("mosquitto_get_retained failed for some reason!".to_string())
+        }
+    }
+    let mut result = Vec::<MosquittoMessage>::new();
+    unsafe {
+        let retains = std::slice::from_raw_parts(buffer, buffer_len as usize);
+        println!("back at rust_town");
+        for &msg_ptr in retains {
+        
+            if (msg_ptr).is_null() {
+                break;
+            }
+            let msg = *msg_ptr;
+            let topic: &str = unsafe {
+                let c_str = std::ffi::CStr::from_ptr(msg.topic);
+                c_str
+                    .to_str()
+                    .expect("get_retained failed to create topic &str from CStr pointer")
+            };
+            let payload: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    msg.payload as *const u8,
+                    msg.payloadlen as usize,
+                )
+            };
+
+            let qos = msg.qos;
+            let retain = msg.retain; //should be true if not something's wrong in mosquitto
+            let message = MosquittoMessage {
+                topic,
+                payload,
+                qos,
+                retain,
+            };
+            let boxed = Box::new(msg_ptr);
+            mosquitto_property_check_command(1, 1);
+            println!("one retained message was: {:?}", message);
+            result.push(message);
+        }
+    } 
+   
+    Ok(result)
 }

@@ -115,7 +115,7 @@ impl MosquittoPlugin for Test {
             message.topic,
             message.payload
         );
-        let retained_database = mosquitto_calls::get_retained("HEJ/#");
+        let retained_database = mosquitto_calls::get_retained("#", 2);
         println!("retained_database: {:?}", retained_database);
     }
 }

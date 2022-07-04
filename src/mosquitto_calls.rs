@@ -3,6 +3,7 @@ use crate::Error;
 use crate::MosquittoMessage;
 use crate::{Success, QOS};
 use libc::c_void;
+use std::convert::TryInto;
 use std::ffi::CString;
 use std::mem;
 use std::os::raw::c_char;
@@ -99,83 +100,81 @@ pub fn publish_to_client(
     }
 }
 
-pub fn get_retained(topic: &str) -> Result<Vec<MosquittoMessage>, String> {
-    let cstr =
-        &CString::new(topic).expect(format!("failed to make cstring for topic {}", topic).as_str());
-    let topic_ptr = cstr.as_bytes_with_nul().as_ptr() as c_char;
-    println!(
-        "size of mosquitto_message: {}",
-        mem::size_of::<mosquitto_message>()
-    );
-    let buffer_len: usize = 10;
+pub fn get_retained<'a>(topic: &'a str, buf_size: usize) -> Result<Vec<MosquittoMessage>, String> {
+    
 
-    // let mut buffer : Vec<mosquitto_message> = vec![mosquitto_message {
-    //     mid: 0,
-    //     topic: std::ptr::null_mut::<c_char>(),
-    //     payload: std::ptr::null_mut::<c_void>(),
-    //     payloadlen: 0,
-    //     qos: 0,
-    //     retain: false,
-    // }; buffer_len.try_into().unwrap()];
+    let cstr = &CString::new(topic).map_err(|_| {
+        format!(
+            "failed to make cstring for topic {} probably it contains a 0 byte",
+            topic
+        )
+    })?;
 
-    let mut buffer: Vec<*mut mosquitto_message> = Vec::new();
+    let topic_ptr = cstr.as_bytes_with_nul().as_ptr() as *const c_char;
 
-    // for i in 0..buffer_len {
-    //     unsafe { buffer[i] =
-    //         libc::malloc(std::mem::size_of::<mosquitto_message>()) as *mut mosquitto_message;
-    //     }
-    // }
-    // let buffer = buffer.as_ptr();
-
-    let mut result = Vec::<MosquittoMessage>::new();
     unsafe {
         let mut buffer = Vec::<*mut mosquitto_message>::new();
-        for i in 0..10 {
-            buffer
-                .push(libc::malloc(std::mem::size_of::<mosquitto_message>())
-                    as *mut mosquitto_message)
+        for _ in 0..buf_size {
+            let msg = Box::into_raw(Box::new(mosquitto_message {
+                mid: 0,
+                topic: std::ptr::null_mut::<c_char>(),
+                payload: std::ptr::null_mut::<libc::c_void>(),
+                payloadlen: 0,
+                qos: 0,
+                retain: false,
+            }));
+            buffer.push(msg);
         }
-        for i in &buffer {
-            println!("inside buffer: ptr: {:p}, contents: {:?}", i, *i);
-        }
-
+        let mut len = buffer.len() as size_t;
         if mosquitto_get_retained(
-            topic_ptr as *const c_char,
+            topic_ptr,
             buffer.as_slice().as_ptr(),
-            buffer.len() as u64,
+            &mut len as *mut size_t,
         ) != 0
         {
             return Err("mosquitto_get_retained failed for some reason!".to_string());
         }
-        println!("back at rust_town");
-        for msg_ptr in buffer {
-            if (msg_ptr).is_null() {
-                break;
-            }
-            let msg = *msg_ptr;
-            let topic: &str = unsafe {
-                let c_str = std::ffi::CStr::from_ptr(msg.topic);
-                c_str
-                    .to_str()
-                    .expect("get_retained failed to create topic &str from CStr pointer")
-            };
-            let payload: &[u8] = 
-                std::slice::from_raw_parts(msg.payload as *const u8, msg.payloadlen as usize);
-            
+        println!("number of returned messages: {:p}, with len {}", &len, len);
+        get_result::<'a>(buffer, buf_size, len)
+    }   
+}
 
-            let qos = msg.qos;
-            let retain = msg.retain; //should be true if not something's wrong in mosquitto
-            let message = MosquittoMessage {
-                topic,
-                payload,
-                qos,
-                retain,
-            };
-            let boxed = Box::new(msg_ptr);
-            println!("one retained message was: {:?}", message);
-            result.push(message);
+unsafe fn get_result<'a>(buffer: Vec<*mut mosquitto_message>, buf_size: usize, len: u64) -> Result<Vec<MosquittoMessage<'a>>, String> {
+
+    let mut mosquitto_messages: Vec<mosquitto_message> = Vec::new();
+
+    //put all pointers back in boxes
+    for i in 0..buf_size {
+        if (buffer[i as usize]).is_null() {
+            return Err("Dereferencing a null pointer is a bad idea".to_string());
+        }
+        let msg = Box::from_raw(buffer[i as usize]);
+        if i < len as usize {
+            println!("adding msg: {:?} to the list at {}", msg, i);
+            mosquitto_messages.push(*msg);
         }
     }
+
+    //populate result vec
+    let mut result : Vec<MosquittoMessage> = Vec::new();
+    for msg in mosquitto_messages {
+        let topic = std::ffi::CStr::from_ptr(msg.topic).to_str().map_err(|_| {
+            "get_retained failed to create topic &str from CStr pointer".to_string()
+        })?;
+
+        let payload: &[u8] =
+            std::slice::from_raw_parts(msg.payload as *const u8, msg.payloadlen as usize);
+
+        let message = MosquittoMessage {
+            topic,
+            payload,
+            qos: msg.qos,
+            retain: msg.retain,
+        };
+        println!("one retained message was: {:?}", message);
+        result.push(message);
+    }  
+
 
     Ok(result)
 }

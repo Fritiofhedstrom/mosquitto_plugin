@@ -102,15 +102,19 @@ impl MosquittoPlugin for Test {
     }
 
     fn on_disconnect(&mut self, client: &dyn MosquittoClientContext, reason: i32) {
-        println!("Plugin on_disconnect, Client {} is disconnecting", client.get_id());
+        println!(
+            "Plugin on_disconnect, Client {} is disconnecting",
+            client.get_id()
+        );
     }
 
-    fn on_message(
-        &mut self,
-        client: &dyn MosquittoClientContext,
-        message: MosquittoMessage,
-    ) {
-        println!("Plugin on_message: client {}: Topic: {}, Payload: {:?}", client.get_id(), message.topic, message.payload);
+    fn on_message(&mut self, client: &dyn MosquittoClientContext, message: MosquittoMessage) {
+        println!(
+            "Plugin on_message: client {}: Topic: {}, Payload: {:?}",
+            client.get_id(),
+            message.topic,
+            message.payload
+        );
         let retained_database = mosquitto_calls::get_retained("HEJ/#");
         println!("retained_database: {:?}", retained_database);
     }

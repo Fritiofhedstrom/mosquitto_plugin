@@ -301,7 +301,7 @@ macro_rules! create_dynamic_library {
 
             user_data.external_user_data.on_tick(
                 event_data.now_ns as i64,
-                event_data.next_ns as i64,
+                event_data.next_ms as i64,
                 event_data.now_s as i32,
                 event_data.next_s as i32,
             );

@@ -1,7 +1,8 @@
-use crate::mosquitto_dev::*;
+use crate::mosquitto_dev::{mosquitto_broker_publish, mosquitto_property, mosquitto_message, mosquitto_get_retained};
 use crate::Error;
 use crate::MosquittoMessage;
 use crate::{Success, QOS};
+use crate::size_t;
 use libc::c_void;
 use std::convert::TryInto;
 use std::ffi::CString;
@@ -101,8 +102,6 @@ pub fn publish_to_client(
 }
 
 pub fn get_retained<'a>(topic: &'a str, buf_size: usize) -> Result<Vec<MosquittoMessage>, String> {
-    
-
     let cstr = &CString::new(topic).map_err(|_| {
         format!(
             "failed to make cstring for topic {} probably it contains a 0 byte",
@@ -125,22 +124,38 @@ pub fn get_retained<'a>(topic: &'a str, buf_size: usize) -> Result<Vec<Mosquitto
             }));
             buffer.push(msg);
         }
+        let mut messages_found: u64 = 0;
         let mut len = buffer.len() as size_t;
-        if mosquitto_get_retained(
+        let rc = mosquitto_get_retained(
             topic_ptr,
             buffer.as_slice().as_ptr(),
             &mut len as *mut size_t,
-        ) != 0
-        {
-            return Err("mosquitto_get_retained failed for some reason!".to_string());
+            &mut messages_found as *mut size_t,
+        );
+        let i = crate::mosq_err_t_MOSQ_ERR_SUCCESS;
+        match rc {
+            crate::mosq_err_t_MOSQ_ERR_SUCCESS => {},
+            crate::mosq_err_t_MOSQ_ERR_BUFFER_FULL => { return get_retained(topic, buf_size*2)},
+            error => {
+                let msg = match error {
+                    crate::mosq_err_t_MOSQ_ERR_INVAL => {"MOSQ_ERR_INVAL".to_string()},
+                    crate::mosq_err_t_MOSQ_ERR_NOMEM => {"MOSQ_ERR_NOMEM".to_string()},
+                    crate::mosq_err_t_MOSQ_ERR_PROTOCOL => {"MOSQ_ERR_PROTOCOL".to_string()},
+                    
+                    _ => {
+                        //todo!(implement for all known errors)
+                        "UNKNOWN ERROR".to_string()}
+                };
+                let msg = format!("mosquitto_get_retained failed. return code from mosquitto: {}", msg);
+                reclaim_into_box(buffer, buf_size, messages_found).map_err(|e| format!("failed to reclaim memory (potentially big problem): {e} while handling this error: {msg}"))?;
+                return Err(format!("mosquitto_get_retained failed. return code from mosquitto: {}", msg))
+            },
         }
-        println!("number of returned messages: {:p}, with len {}", &len, len);
-        get_result::<'a>(buffer, buf_size, len)
-    }   
+        let messages = reclaim_into_box(buffer, buf_size, messages_found)?;
+        convert_to_rust_type::<'a>(messages)
+    }
 }
-
-unsafe fn get_result<'a>(buffer: Vec<*mut mosquitto_message>, buf_size: usize, len: u64) -> Result<Vec<MosquittoMessage<'a>>, String> {
-
+unsafe fn reclaim_into_box(buffer: Vec<*mut mosquitto_message>, buf_size: usize, messages_found: u64) -> Result<Vec<mosquitto_message>, String> {
     let mut mosquitto_messages: Vec<mosquitto_message> = Vec::new();
 
     //put all pointers back in boxes
@@ -149,15 +164,18 @@ unsafe fn get_result<'a>(buffer: Vec<*mut mosquitto_message>, buf_size: usize, l
             return Err("Dereferencing a null pointer is a bad idea".to_string());
         }
         let msg = Box::from_raw(buffer[i as usize]);
-        if i < len as usize {
-            println!("adding msg: {:?} to the list at {}", msg, i);
+        if i < messages_found as usize {
             mosquitto_messages.push(*msg);
         }
     }
-
+    Ok(mosquitto_messages)
+}
+unsafe fn convert_to_rust_type<'a>(
+    messages: Vec<mosquitto_message>,
+) -> Result<Vec<MosquittoMessage<'a>>, String> {
     //populate result vec
-    let mut result : Vec<MosquittoMessage> = Vec::new();
-    for msg in mosquitto_messages {
+    let mut result: Vec<MosquittoMessage> = Vec::new();
+    for msg in messages {
         let topic = std::ffi::CStr::from_ptr(msg.topic).to_str().map_err(|_| {
             "get_retained failed to create topic &str from CStr pointer".to_string()
         })?;
@@ -171,10 +189,7 @@ unsafe fn get_result<'a>(buffer: Vec<*mut mosquitto_message>, buf_size: usize, l
             qos: msg.qos,
             retain: msg.retain,
         };
-        println!("one retained message was: {:?}", message);
         result.push(message);
-    }  
-
-
+    }
     Ok(result)
 }

@@ -47,13 +47,13 @@ impl MosquittoPlugin for Test {
                 true,
             )?;
             mosquitto_calls::publish_broadcast(
-                "HEJ/ajaj",
+                "test/hello",
                 "very_client is a friend. Lets make it feel at home!".as_bytes(),
                 QOS::AtMostOnce,
                 true,
             )?;
             mosquitto_calls::publish_broadcast(
-                "HEJ/ajaj/tjoho",
+                "123/321/test",
                 "very_client is a friend. Lets make it feel at home!".as_bytes(),
                 QOS::AtMostOnce,
                 true,
@@ -68,14 +68,6 @@ impl MosquittoPlugin for Test {
             )?;
             Ok(Success)
         } else {
-            println!("USERNAME_PASSWORD failed for {}", client_id);
-            // Snitch to all other clients what a bad client that was.
-            mosquitto_calls::publish_broadcast(
-                "snitcheroo",
-                format!("{} is a bad bad client. No cookies for it.", client_id).as_bytes(),
-                QOS::AtMostOnce,
-                true,
-            )?;
             Err(Error::Auth)
         }
     }
@@ -86,18 +78,6 @@ impl MosquittoPlugin for Test {
         level: AclCheckAccessLevel,
         msg: MosquittoMessage,
     ) -> Result<Success, mosquitto_plugin::Error> {
-        println!("allowed topic: {}", self.s);
-        println!("topic: {}", msg.topic);
-        println!("level requested: {}", level);
-
-        // only the topic provided in the mosquitto.conf by the value auth_opt_topic <value> is
-        // allowed, errors will not be reported to the clients though, they will only not be able
-        // to send/receive messages and thus silently fail due to limitations in MQTT protocol
-        // if msg.topic == self.s {
-        //     Ok(Success)
-        // } else {
-        //     Err(Error::AclDenied)
-        // }
         Ok(Success)
     }
 
@@ -115,7 +95,7 @@ impl MosquittoPlugin for Test {
             message.topic,
             message.payload
         );
-        let retained_database = mosquitto_calls::get_retained("#", 2);
+        let retained_database = mosquitto_calls::get_retained("#", 10);
         println!("retained_database: {:?}", retained_database);
     }
 }
